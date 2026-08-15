@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Outlast Night Vision Camera</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background-color: #000;
+      color: #fff;
+      font-family: 'Courier New', Courier, monospace, monospace;
+      overflow: hidden;
+      position: fixed;
+    }
+
+    #app-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* ELEMENTO DE VIDEO OCULTO */
+    video#webcam {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* CANVAS DE RENDERIZADO CÁMARA */
+    canvas#camera-canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* RUIDO Y ESCANEO CRT DE FONDO */
+    .scanlines {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.45) 50%),
+                  linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02));
+      background-size: 100% 4px, 6px 100%;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* OVERLAY COMPLETO HUD - ESTÉTICA FIEL A OUTLAST */
+    .hud-overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: env(safe-area-inset-top, 20px) env(safe-area-inset-right, 20px) env(safe-area-inset-bottom, 20px) env(safe-area-inset-left, 20px);
+      box-shadow: inset 0 0 120px rgba(0,0,0,0.98);
+      transition: box-shadow 0.2s ease;
+    }
+
+    /* BARRA SUPERIOR */
+    .hud-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      width: 100%;
+      padding-top: 8px;
+    }
+
+    /* REC + CRONÓMETRO (ARRIBA IZQUIERDA) */
+    .hud-rec-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .rec-dot {
+      width: 15px;
+      height: 15px;
+      background-color: #ff1111;
+      border-radius: 50%;
+      box-shadow: 0 0 12px #ff0000;
+      animation: blink 1.2s infinite alternate;
+    }
+
+    .rec-dot.off {
+      background-color: #444;
+      box-shadow: none;
+      animation: none;
+    }
+
+    @keyframes blink {
+      0% { opacity: 0.2; }
+      100% { opacity: 1; }
+    }
+
+    .rec-title {
+      font-size: 1.15rem;
+      font-weight: 900;
+      color: #ff1111;
+      letter-spacing: 2px;
+      text-shadow: 0 0 8px rgba(255,0,0,0.8);
+    }
+
+    .rec-timer {
+      font-size: 1.05rem;
+      font-weight: bold;
+      color: #ff2222;
+      letter-spacing: 1px;
+      text-shadow: 0 0 6px rgba(255,0,0,0.6);
+      margin-left: 6px;
+    }
+
+    /* BRÚJULA CENTRAL ARRIBA */
+    .hud-compass {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #d0ded0;
+      font-size: 0.95rem;
+      letter-spacing: 2px;
+      text-shadow: 0 0 4px rgba(0,0,0,0.9);
+    }
+
+    .compass-line {
+      display: inline-block;
+      width: 110px;
+      height: 10px;
+      border: 1px solid rgba(255,255,255,0.4);
+      position: relative;
+    }
+
+    .compass-line::before {
+      content: '';
+      position: absolute;
+      left: 45%;
+      top: 0;
+      width: 10%;
+      height: 100%;
+      background: rgba(255,255,255,0.7);
+    }
+
+    /* BATERÍA Y ESTADO (ARRIBA DERECHA) */
+    .hud-battery-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #e0eee0;
+    }
+
+    .battery-count {
+      font-size: 0.9rem;
+      font-weight: bold;
+      letter-spacing: 2px;
+      text-shadow: 0 0 4px #000;
+    }
+
+    .battery-box {
+      width: 44px;
+      height: 19px;
+      border: 2px solid #d0ded0;
+      padding: 2px;
+      position: relative;
+      border-radius: 2px;
+      background: rgba(0,0,0,0.4);
+    }
+
+    .battery-box::after {
+      content: '';
+      position: absolute;
+      right: -6px;
+      top: 3px;
+      width: 4px;
+      height: 9px;
+      background: #d0ded0;
+    }
+
+    .battery-fill {
+      width: 80%;
+      height: 100%;
+      background-color: #d0ded0;
+      box-shadow: 0 0 5px #39ff14;
+      transition: width 0.3s;
+    }
+
+    .battery-fill.low {
+      background-color: #ff3333;
+      box-shadow: 0 0 8px #ff0000;
+    }
+
+    .cam-icon-box {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      border: 1px solid rgba(255,255,255,0.4);
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-size: 0.75rem;
+    }
+
+    /* ENFOQUE CUADRO CENTRAL [ ] OUTLAST */
+    .hud-center-focus {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 170px;
+      height: 140px;
+      pointer-events: none;
+    }
+
+    .hud-center-focus::before, .hud-center-focus::after {
+      content: '';
+      position: absolute;
+      width: 25px;
+      height: 25px;
+      border-color: rgba(255, 255, 255, 0.45);
+      border-style: solid;
+    }
+
+    .hud-center-focus::before {
+      top: 0; left: 0;
+      border-width: 1.5px 0 0 1.5px;
+    }
+
+    .hud-center-focus::after {
+      bottom: 0; right: 0;
+      border-width: 0 1.5px 1.5px 0;
+    }
+
+    .hud-center-focus-sub {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+    }
+
+    .hud-center-focus-sub::before, .hud-center-focus-sub::after {
+      content: '';
+      position: absolute;
+      width: 25px;
+      height: 25px;
+      border-color: rgba(255, 255, 255, 0.45);
+      border-style: solid;
+    }
+
+    .hud-center-focus-sub::before {
+      top: 0; right: 0;
+      border-width: 1.5px 1.5px 0 0;
+    }
+
+    .hud-center-focus-sub::after {
+      bottom: 0; left: 0;
+      border-width: 0 0 1.5px 1.5px;
+    }
+
+    /* FOOTER HUD */
+    .hud-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      width: 100%;
+      padding-bottom: 90px;
+    }
+
+    .hud-footer-left {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .badge-hd {
+      display: inline-block;
+      border: 1.5px solid #d0ded0;
+      color: #d0ded0;
+      font-size: 0.72rem;
+      font-weight: bold;
+      padding: 1px 4px;
+      letter-spacing: 1px;
+      width: fit-content;
+      text-shadow: 0 0 3px #000;
+    }
+
+    .badge-auto {
+      background: rgba(255,255,255,0.85);
+      color: #000;
+      font-size: 0.68rem;
+      font-weight: 900;
+      padding: 1px 5px;
+      letter-spacing: 1px;
+      width: fit-content;
+      border-radius: 1px;
+    }
+
+    .badge-f {
+      color: #d0ded0;
+      font-size: 0.78rem;
+      font-weight: bold;
+      margin-top: 2px;
+      text-shadow: 0 0 3px #000;
+    }
+
+    /* PANEL DE CONTROL DE AJUSTES EN TIEMPO REAL */
+    #custom-adjust-panel {
+      position: absolute;
+      bottom: 85px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 92%;
+      max-width: 420px;
+      background: rgba(4, 15, 6, 0.92);
+      border: 1px solid #39ff14;
+      border-radius: 8px;
+      padding: 12px 16px;
+      z-index: 50;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: 0 0 25px rgba(0,0,0,0.95);
+      backdrop-filter: blur(8px);
+    }
+
+    #custom-adjust-panel.show {
+      display: flex;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(57, 255, 20, 0.4);
+      padding-bottom: 6px;
+      color: #39ff14;
+      font-size: 0.85rem;
+      font-weight: bold;
+    }
+
+    .adjust-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      color: #a3ffa0;
+    }
+
+    .adjust-row label {
+      flex: 1;
+    }
+
+    .adjust-row input[type=range] {
+      width: 140px;
+      accent-color: #39ff14;
+    }
+
+    .adjust-row select {
+      background: #000;
+      color: #39ff14;
+      border: 1px solid #39ff14;
+      padding: 3px 6px;
+      border-radius: 3px;
+      font-family: inherit;
+      font-size: 0.75rem;
+    }
+
+    /* CONTROLES FLOTANTES TÁCTILES INFERIORES */
+    .controls-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 80px;
+      background: linear-gradient(to top, rgba(0,0,0,0.98), rgba(0,15,0,0.8));
+      border-top: 1px solid rgba(57, 255, 20, 0.35);
+      z-index: 30;
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      padding: 0 4px env(safe-area-inset-bottom, 10px) 4px;
+      backdrop-filter: blur(6px);
+    }
+
+    .btn-control {
+      background: rgba(12, 35, 12, 0.85);
+      border: 1px solid #39ff14;
+      color: #39ff14;
+      padding: 8px 3px;
+      font-family: inherit;
+      font-size: 0.62rem;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      box-shadow: 0 0 8px rgba(57, 255, 20, 0.25);
+      transition: all 0.15s ease;
+      flex: 1;
+      margin: 0 2px;
+      max-width: 65px;
+    }
+
+    .btn-control:active, .btn-control.active {
+      background: #39ff14;
+      color: #000;
+      box-shadow: 0 0 15px #39ff14;
+    }
+
+    .btn-rec {
+      border-color: #ff3333;
+      color: #ff3333;
+      box-shadow: 0 0 8px rgba(255, 51, 51, 0.3);
+    }
+
+    .btn-rec:active, .btn-rec.recording {
+      background: #ff0000;
+      color: #fff;
+      box-shadow: 0 0 18px #ff0000;
+      animation: pulse-rec 1.2s infinite;
+    }
+
+    @keyframes pulse-rec {
+      0% { box-shadow: 0 0 8px #ff0000; }
+      50% { box-shadow: 0 0 20px #ff0000; }
+      100% { box-shadow: 0 0 8px #ff0000; }
+    }
+
+    /* MODAL START / PERMISOS */
+    #start-modal {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(1, 5, 2, 0.96);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 30px;
+      text-align: center;
+    }
+
+    #start-modal h1 {
+      font-size: 2.2rem;
+      color: #39ff14;
+      margin-bottom: 12px;
+      text-shadow: 0 0 18px #39ff14;
+      letter-spacing: 3px;
+    }
+
+    #start-modal p {
+      color: #88bb88;
+      max-width: 420px;
+      margin-bottom: 25px;
+      line-height: 1.5;
+      font-size: 0.95rem;
+    }
+
+    .btn-start {
+      background: #39ff14;
+      color: #000;
+      border: none;
+      padding: 16px 36px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      font-family: inherit;
+      cursor: pointer;
+      border-radius: 4px;
+      box-shadow: 0 0 20px #39ff14;
+      letter-spacing: 2px;
+    }
+
+    .btn-start:active {
+      transform: scale(0.96);
+    }
+
+    /* NOTIFICACIÓN TOAST */
+    #toast {
+      position: absolute;
+      top: 75px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.92);
+      border: 1px solid #39ff14;
+      color: #39ff14;
+      padding: 8px 18px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      z-index: 60;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+      box-shadow: 0 0 12px rgba(57, 255, 20, 0.5);
+      white-space: nowrap;
+    }
+
+    #toast.show { opacity: 1; }
+
+    /* GALERÍA MODAL */
+    #gallery-modal {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 5, 0, 0.96);
+      z-index: 90;
+      display: none;
+      flex-direction: column;
+      padding: 20px;
+    }
+
+    #gallery-modal.show { display: flex; }
+
+    .gallery-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #39ff14;
+      padding-bottom: 12px;
+      margin-bottom: 15px;
+    }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 12px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .gallery-item {
+      border: 1px solid #39ff14;
+      background: #000;
+      padding: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .gallery-item video, .gallery-item img {
+      width: 100%;
+      height: 95px;
+      object-fit: cover;
+    }
+
+    .gallery-item a {
+      color: #39ff14;
+      text-decoration: none;
+      font-size: 0.72rem;
+      text-align: center;
+      background: rgba(57, 255, 20, 0.2);
+      padding: 5px;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="app-container">
+    
+    <!-- LINEAS DE ESCANEO -->
+    <div class="scanlines"></div>
+
+    <!-- CANVAS DE PROCESAMIENTO CÁMARA -->
+    <div id="viewfinder" style="width:100%; height:100%;">
+      <video id="webcam" autoplay playsinline muted></video>
+      <canvas id="camera-canvas"></canvas>
+    </div>
+
+    <!-- OVERLAY HUD (IDÉNTICO A OUTLAST 1) -->
+    <div class="hud-overlay" id="hud-overlay">
+      
+      <!-- SUPERIOR HUD -->
+      <div class="hud-header">
+        <div class="hud-rec-container">
+          <div class="rec-dot" id="rec-dot"></div>
+          <span class="rec-title" id="rec-text">●REC</span>
+          <span class="rec-timer" id="timer-display">01:30:51:79</span>
+        </div>
+
+        <div class="hud-compass">
+          <span>W</span>
+          <div class="compass-line"></div>
+          <span>T</span>
+        </div>
+
+        <div class="hud-battery-area">
+          <span class="battery-count" id="bat-count">3/10</span>
+          <div class="battery-box">
+            <div class="battery-fill" id="bat-fill"></div>
+          </div>
+          <div class="cam-icon-box">
+            <span id="torch-hud-icon">👁️</span>
+            <span>🔊</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- CUADRO CENTRAL [ ] -->
+      <div class="hud-center-focus">
+        <div class="hud-center-focus-sub"></div>
+      </div>
+
+      <!-- INFERIOR HUD -->
+      <div class="hud-footer">
+        <div class="hud-footer-left">
+          <div class="badge-hd">HD</div>
+          <div class="badge-auto">AUTO</div>
+          <div class="badge-f">F2.4</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL DE AJUSTES PERSONALIZADOS DE CÁMARA -->
+    <div id="custom-adjust-panel">
+      <div class="panel-header">
+        <span>AJUSTES CÁMARA OUTLAST</span>
+        <button id="btn-close-adjust" style="background:none; border:none; color:#39ff14; font-weight:bold; cursor:pointer;">[X]</button>
+      </div>
+
+      <div class="adjust-row">
+        <label>Color / Paleta:</label>
+        <select id="select-palette">
+          <option value="outlast">Verde Outlast Fósforo</option>
+          <option value="mint">Verde Menta Clásico</option>
+          <option value="blue">Azul Infrarrojo IR</option>
+          <option value="bw">Blanco y Negro IR</option>
+          <option value="cyan">Térmico Cian</option>
+        </select>
+      </div>
+
+      <div class="adjust-row">
+        <label>Oscuridad / Viñeta:</label>
+        <input type="range" id="range-vignette" min="50" max="100" value="95">
+      </div>
+
+      <div class="adjust-row">
+        <label>Borrosidad (Blur):</label>
+        <input type="range" id="range-blur" min="0" max="10" value="1">
+      </div>
+
+      <div class="adjust-row">
+        <label>Brillo / Amplificación:</label>
+        <input type="range" id="range-gain" min="100" max="300" value="185">
+      </div>
+
+      <div class="adjust-row">
+        <label>Grano / Estática:</label>
+        <input type="range" id="range-noise" min="0" max="100" value="45">
+      </div>
+
+      <div class="adjust-row">
+        <label>Radio Luz IR Central:</label>
+        <input type="range" id="range-ir-spot" min="10" max="25" value="16">
+      </div>
+    </div>
+
+    <!-- CONTROLES TÁCTILES FLOTANTES -->
+    <div class="controls-bar">
+      <button class="btn-control active" id="btn-nv">
+        <span>👁️</span>
+        <span>VISIÓN IR</span>
+      </button>
+
+      <button class="btn-control" id="btn-torch">
+        <span>🔦</span>
+        <span>LINTERNA</span>
+      </button>
+
+      <button class="btn-control" id="btn-adjust">
+        <span>🎨</span>
+        <span>AJUSTES</span>
+      </button>
+
+      <button class="btn-control" id="btn-flip">
+        <span>🔄</span>
+        <span>GIRAR CAM</span>
+      </button>
+
+      <button class="btn-control btn-rec" id="btn-record">
+        <span>🔴</span>
+        <span id="rec-btn-label">GRABAR</span>
+      </button>
+
+      <button class="btn-control" id="btn-snap">
+        <span>📸</span>
+        <span>FOTO</span>
+      </button>
+
+      <button class="btn-control" id="btn-battery">
+        <span>🔋</span>
+        <span>RECARGAR</span>
+      </button>
+
+      <button class="btn-control" id="btn-gallery">
+        <span>📁</span>
+        <span>GALERÍA</span>
+      </button>
+    </div>
+
+    <!-- NOTIFICACIÓN -->
+    <div id="toast">Notificación</div>
+
+    <!-- MODAL DE INICIO -->
+    <div id="start-modal">
+      <h1>OUTLAST NV CAM</h1>
+      <p>Cámara de Visión Nocturna en tiempo real con la interfaz original de Outlast. Incluye linterna infrarroja y flash.</p>
+      <button class="btn-start" id="btn-start-app">ACTIVAR CÁMARA</button>
+      <button class="btn-start" id="btn-demo-mode" style="background:#111; color:#39ff14; border:1px solid #39ff14; margin-top:12px; font-size:0.85rem; padding:10px 18px;">MODO DEMO (SIN CÁMARA)</button>
+    </div>
+
+    <!-- GALERÍA MODAL -->
+    <div id="gallery-modal">
+      <div class="gallery-header">
+        <h3 style="color:#39ff14;">GRABACIONES OUTLAST</h3>
+        <button class="btn-control" id="btn-close-gallery" style="max-width:none; width:auto; padding:6px 12px;">CERRAR [X]</button>
+      </div>
+      <div class="gallery-grid" id="gallery-container"></div>
+    </div>
+
+  </div>
+
+  <script>
+    // Referencias DOM
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('camera-canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    const startModal = document.getElementById('start-modal');
+    const btnStart = document.getElementById('btn-start-app');
+    const btnDemo = document.getElementById('btn-demo-mode');
+    const btnNV = document.getElementById('btn-nv');
+    const btnTorch = document.getElementById('btn-torch');
+    const btnAdjust = document.getElementById('btn-adjust');
+    const btnFlip = document.getElementById('btn-flip');
+    const btnRecord = document.getElementById('btn-record');
+    const btnSnap = document.getElementById('btn-snap');
+    const btnBattery = document.getElementById('btn-battery');
+    const btnGallery = document.getElementById('btn-gallery');
+    const galleryModal = document.getElementById('gallery-modal');
+    const btnCloseGallery = document.getElementById('btn-close-gallery');
+
+    const adjustPanel = document.getElementById('custom-adjust-panel');
+    const btnCloseAdjust = document.getElementById('btn-close-adjust');
+    const hudOverlay = document.getElementById('hud-overlay');
+    const torchHudIcon = document.getElementById('torch-hud-icon');
+
+    // Inputs de Ajustes
+    const selectPalette = document.getElementById('select-palette');
+    const rangeVignette = document.getElementById('range-vignette');
+    const rangeBlur = document.getElementById('range-blur');
+    const rangeGain = document.getElementById('range-gain');
+    const rangeNoise = document.getElementById('range-noise');
+    const rangeIrSpot = document.getElementById('range-ir-spot');
+
+    const recDot = document.getElementById('rec-dot');
+    const recText = document.getElementById('rec-text');
+    const timerDisplay = document.getElementById('timer-display');
+    const batFill = document.getElementById('bat-fill');
+    const batCount = document.getElementById('bat-count');
+    const toast = document.getElementById('toast');
+
+    // Estado Global
+    let currentStream = null;
+    let isNightVision = true;
+    let isTorchOn = false;
+    let isRecording = false;
+    let isDemoMode = false;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let battery = 90;
+    let spareBatteries = 3;
+    let startTime = 0;
+    let timerInterval = null;
+    let audioCtx = null;
+    let facingMode = 'environment';
+    let recordedMedia = [];
+
+    // Ajustes Personalizables
+    let currentPalette = 'outlast';
+    let vignetteAmount = 0.95;
+    let blurAmount = 1;
+    let gainAmount = 1.85;
+    let noiseAmount = 45;
+    let irSpotRadius = 1.6;
+
+    function playBeep(freq = 880, duration = 0.08, type = 'sine') {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function showToast(msg) {
+      toast.innerText = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    // Inicializar Cámara
+    async function initCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+
+      const constraintsList = [
+        { video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true },
+        { video: { facingMode: facingMode }, audio: true },
+        { video: true, audio: true },
+        { video: true, audio: false }
+      ];
+
+      let streamObtained = false;
+      for (let constraints of constraintsList) {
+        try {
+          currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+          video.srcObject = currentStream;
+          await video.play();
+          streamObtained = true;
+          break;
+        } catch (e) {}
+      }
+
+      if (!streamObtained) {
+        alert("No se pudo iniciar la cámara. Concede permisos de cámara en tu navegador.");
+        return;
+      }
+
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+
+      startModal.style.display = 'none';
+      showToast(facingMode === 'environment' ? "CÁMARA TRASERA ACTIVA" : "CÁMARA FRONTAL ACTIVA");
+      playBeep(1200, 0.15);
+
+      requestAnimationFrame(processFrame);
+      startBatteryDrain();
+    }
+
+    function startDemoMode() {
+      isDemoMode = true;
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+      startModal.style.display = 'none';
+      showToast("MODO PRUEBA ACTIVADO");
+      requestAnimationFrame(processFrame);
+      startBatteryDrain();
+    }
+
+    function flipCamera() {
+      facingMode = (facingMode === 'environment') ? 'user' : 'environment';
+      playBeep(900, 0.1);
+      if (isTorchOn) {
+        toggleTorch(false);
+      }
+      if (!isDemoMode) {
+        initCamera();
+      } else {
+        showToast(facingMode === 'environment' ? "CÁMARA TRASERA (DEMO)" : "CÁMARA FRONTAL (DEMO)");
+      }
+    }
+
+    // Encender / Apagar Linterna
+    async function toggleTorch(forceState = null) {
+      isTorchOn = (forceState !== null) ? forceState : !isTorchOn;
+      btnTorch.classList.toggle('active', isTorchOn);
+      torchHudIcon.innerText = isTorchOn ? "🔦" : "👁️";
+
+      playBeep(isTorchOn ? 1100 : 500, 0.1, 'triangle');
+
+      // Intentar activar el Flash LED físico de la cámara móvil
+      if (currentStream && !isDemoMode) {
+        const videoTrack = currentStream.getVideoTracks()[0];
+        if (videoTrack && typeof videoTrack.applyConstraints === 'function') {
+          try {
+            await videoTrack.applyConstraints({
+              advanced: [{ torch: isTorchOn }]
+            });
+          } catch (err) {
+            console.log("Flash físico no disponible en este dispositivo, usando foco virtual.");
+          }
+        }
+      }
+
+      showToast(isTorchOn ? "LINTERNA ENCENDIDA" : "LINTERNA APAGADA");
+    }
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+
+    /* PROCESADOR DE VIDEO Y EFECTOS PERSONALIZABLES */
+    function processFrame() {
+      const width = canvas.width;
+      const height = canvas.height;
+
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, width, height);
+
+      // Aplicar Desenfoque / Blur de Lente si está activado
+      if (blurAmount > 0) {
+        ctx.filter = `blur(${blurAmount}px)`;
+      } else {
+        ctx.filter = 'none';
+      }
+
+      if (isDemoMode) {
+        // Generar ambiente simulación Outlast en Demo
+        const time = Date.now() * 0.002;
+        ctx.fillStyle = '#0b1d0e';
+        ctx.fillRect(width * 0.1, height * 0.1, width * 0.8, height * 0.8);
+        ctx.fillStyle = '#1e4822';
+        ctx.beginPath();
+        ctx.arc(width / 2 + Math.sin(time) * 30, height / 2 + Math.cos(time) * 15, 90, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (video.readyState >= 2) {
+        const videoWidth = video.videoWidth || 640;
+        const videoHeight = video.videoHeight || 480;
+
+        const scale = Math.max(width / videoWidth, height / videoHeight);
+        const nw = videoWidth * scale;
+        const nh = videoHeight * scale;
+        const cx = (width - nw) / 2;
+        const cy = (height - nh) / 2;
+
+        ctx.drawImage(video, cx, cy, nw, nh);
+      }
+
+      // Restablecer filtro ctx
+      ctx.filter = 'none';
+
+      // Shader de Visión Nocturna Outlast & Linterna
+      if (isNightVision || isTorchOn) {
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const data = imgData.data;
+        const len = data.length;
+
+        // Potenciador de brillo extra si la linterna está activa
+        const torchGainBoost = isTorchOn ? 1.6 : 1.0;
+
+        for (let i = 0; i < len; i += 4) {
+          let r = data[i];
+          let g = data[i + 1];
+          let b = data[i + 2];
+
+          // Luminancia
+          let lum = (0.299 * r + 0.587 * g + 0.114 * b) * gainAmount * torchGainBoost;
+
+          // Foco Infrarrojo Central / Haz de Linterna
+          const pixelIndex = i / 4;
+          const px = pixelIndex % width;
+          const py = Math.floor(pixelIndex / width);
+          const dx = px - (width / 2);
+          const dy = py - (height / 2);
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          
+          // La linterna amplía el haz de luz central
+          const effectiveRadius = isTorchOn ? (irSpotRadius * 0.7) : irSpotRadius;
+          const maxDist = width / effectiveRadius;
+          const spot = Math.max(0, 1 - (dist / maxDist));
+          
+          lum += spot * (isTorchOn ? 130 : 75);
+
+          // Ruido de sensor Outlast
+          if (noiseAmount > 0) {
+            const noise = (Math.random() - 0.5) * noiseAmount;
+            lum = Math.min(255, Math.max(0, lum + noise));
+          }
+
+          // Mapeo según la paleta elegida
+          if (isNightVision) {
+            if (currentPalette === 'outlast') {
+              data[i] = lum * 0.14;        // Rojo tenue
+              data[i + 1] = lum * 1.15;     // Verde Fósforo
+              data[i + 2] = lum * 0.32;     // Azul menta
+            } else if (currentPalette === 'mint') {
+              data[i] = lum * 0.2;
+              data[i + 1] = lum * 1.25;
+              data[i + 2] = lum * 0.5;
+            } else if (currentPalette === 'blue') {
+              data[i] = lum * 0.1;
+              data[i + 1] = lum * 0.4;
+              data[i + 2] = lum * 1.2;
+            } else if (currentPalette === 'bw') {
+              data[i] = lum;
+              data[i + 1] = lum;
+              data[i + 2] = lum;
+            } else if (currentPalette === 'cyan') {
+              data[i] = lum * 0.05;
+              data[i + 1] = lum * 1.1;
+              data[i + 2] = lum * 1.1;
+            }
+          } else if (isTorchOn) {
+            // Si no está la visión nocturna pero sí la linterna
+            data[i] = Math.min(255, r * 1.3 + spot * 80);
+            data[i + 1] = Math.min(255, g * 1.3 + spot * 80);
+            data[i + 2] = Math.min(255, b * 1.3 + spot * 80);
+          }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+      }
+
+      requestAnimationFrame(processFrame);
+    }
+
+    /* GRABACIÓN */
+    function toggleRecording() {
+      if (!isRecording) startRecording();
+      else stopRecording();
+    }
+
+    function startRecording() {
+      recordedChunks = [];
+      const canvasStream = canvas.captureStream(25);
+
+      if (currentStream && currentStream.getAudioTracks().length > 0) {
+        canvasStream.addTrack(currentStream.getAudioTracks()[0]);
+      }
+
+      let options = { mimeType: 'video/webm' };
+      if (MediaRecorder.isTypeSupported('video/mp4')) {
+        options = { mimeType: 'video/mp4' };
+      }
+
+      try {
+        mediaRecorder = new MediaRecorder(canvasStream, options);
+      } catch (e) {
+        mediaRecorder = new MediaRecorder(canvasStream);
+      }
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = saveRecording;
+      mediaRecorder.start();
+      isRecording = true;
+
+      recDot.classList.remove('off');
+      recText.innerText = "●REC";
+      document.getElementById('rec-btn-label').innerText = "DETENER";
+      btnRecord.classList.add('recording');
+
+      startTime = Date.now();
+      timerInterval = setInterval(updateTimer, 30);
+
+      playBeep(950, 0.15);
+      showToast("GRABANDO VIDEO");
+    }
+
+    function stopRecording() {
+      if (!isRecording) return;
+      mediaRecorder.stop();
+      isRecording = false;
+
+      recDot.classList.add('off');
+      recText.innerText = "PAUSE";
+      document.getElementById('rec-btn-label').innerText = "GRABAR";
+      btnRecord.classList.remove('recording');
+
+      clearInterval(timerInterval);
+      playBeep(450, 0.2);
+      showToast("VIDEO GUARDADO");
+    }
+
+    function saveRecording() {
+      const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      recordedMedia.push({ type: 'video', url, date: new Date().toLocaleTimeString() });
+      updateGalleryUI();
+    }
+
+    function takeSnapshot() {
+      playBeep(1400, 0.05);
+      const dataUrl = canvas.toDataURL('image/png');
+      recordedMedia.push({ type: 'image', url: dataUrl, date: new Date().toLocaleTimeString() });
+      updateGalleryUI();
+      showToast("FOTO CAPTURADA");
+    }
+
+    function updateGalleryUI() {
+      const container = document.getElementById('gallery-container');
+      container.innerHTML = '';
+
+      if (recordedMedia.length === 0) {
+        container.innerHTML = '<p style="color:#666; font-size: 0.8rem;">Sin archivos grabados.</p>';
+        return;
+      }
+
+      recordedMedia.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = 'gallery-item';
+
+        if (item.type === 'video') {
+          div.innerHTML = `
+            <video src="${item.url}" controls></video>
+            <a href="${item.url}" download="outlast_rec_${idx}.webm">DESCARGAR</a>
+          `;
+        } else {
+          div.innerHTML = `
+            <img src="${item.url}" />
+            <a href="${item.url}" download="outlast_foto_${idx}.png">DESCARGAR</a>
+          `;
+        }
+        container.appendChild(div);
+      });
+    }
+
+    /* TIMERS & BATERÍA */
+    function updateTimer() {
+      const elapsed = Date.now() - startTime;
+      const ms = Math.floor((elapsed % 1000) / 10);
+      const secs = Math.floor((elapsed / 1000) % 60);
+      const mins = Math.floor((elapsed / (1000 * 60)) % 60);
+      const hrs = Math.floor(elapsed / (1000 * 60 * 60));
+
+      timerDisplay.innerText = `${pad(hrs)}:${pad(mins)}:${pad(secs)}:${pad(ms)}`;
+    }
+
+    function pad(n) {
+      return n.toString().padStart(2, '0');
+    }
+
+    function startBatteryDrain() {
+      setInterval(() => {
+        if (battery > 0 && (isNightVision || isTorchOn)) {
+          // Consume más batería cuando la linterna está encendida
+          const drainRate = isTorchOn ? 1.0 : 0.5;
+          battery -= drainRate;
+          if (battery < 0) battery = 0;
+          
+          batFill.style.width = `${battery}%`;
+
+          if (battery < 20) {
+            batFill.classList.add('low');
+          } else {
+            batFill.classList.remove('low');
+          }
+
+          if (battery === 0) {
+            isNightVision = false;
+            btnNV.classList.remove('active');
+            if (isTorchOn) toggleTorch(false);
+            showToast("BATERÍA AGOTADA");
+          }
+        }
+      }, 3000);
+    }
+
+    function reloadBattery() {
+      if (spareBatteries > 0) {
+        spareBatteries--;
+        battery = 100;
+        batFill.style.width = '100%';
+        batFill.classList.remove('low');
+        batCount.innerText = `${spareBatteries}/10`;
+        isNightVision = true;
+        btnNV.classList.add('active');
+
+        playBeep(600, 0.2, 'square');
+        showToast("BATERÍA REEMPLAZADA");
+      } else {
+        showToast("SIN BATERÍAS");
+      }
+    }
+
+    /* EVENTOS Y AJUSTES DINÁMICOS */
+    btnStart.addEventListener('click', initCamera);
+    btnDemo.addEventListener('click', startDemoMode);
+    btnFlip.addEventListener('click', flipCamera);
+    btnTorch.addEventListener('click', () => toggleTorch());
+
+    btnNV.addEventListener('click', () => {
+      isNightVision = !isNightVision;
+      btnNV.classList.toggle('active', isNightVision);
+      playBeep(700, 0.1);
+    });
+
+    btnAdjust.addEventListener('click', () => {
+      adjustPanel.classList.toggle('show');
+    });
+
+    btnCloseAdjust.addEventListener('click', () => {
+      adjustPanel.classList.remove('show');
+    });
+
+    btnRecord.addEventListener('click', toggleRecording);
+    btnSnap.addEventListener('click', takeSnapshot);
+    btnBattery.addEventListener('click', reloadBattery);
+
+    btnGallery.addEventListener('click', () => galleryModal.classList.add('show'));
+    btnCloseGallery.addEventListener('click', () => galleryModal.classList.remove('show'));
+
+    // Listeners para los controles de imagen
+    selectPalette.addEventListener('change', (e) => currentPalette = e.target.value);
+    
+    rangeVignette.addEventListener('input', (e) => {
+      vignetteAmount = parseFloat(e.target.value) / 100;
+      hudOverlay.style.boxShadow = `inset 0 0 ${vignetteAmount * 130}px rgba(0,0,0,${vignetteAmount})`;
+    });
+
+    rangeBlur.addEventListener('input', (e) => blurAmount = parseFloat(e.target.value));
+    rangeGain.addEventListener('input', (e) => gainAmount = parseFloat(e.target.value) / 100);
+    rangeNoise.addEventListener('input', (e) => noiseAmount = parseFloat(e.target.value));
+    rangeIrSpot.addEventListener('input', (e) => irSpotRadius = parseFloat(e.target.value) / 10);
+  </script>
+</body>
+</html>
